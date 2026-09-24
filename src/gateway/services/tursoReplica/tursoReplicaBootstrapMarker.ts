@@ -55,6 +55,20 @@ export interface BootstrapPendingMarker {
   rowsAtRepair: number;
   /** Present only when rowsAtRepair > 0 and the snapshot succeeded. */
   snapshotPath?: string;
+  /**
+   * The file was known to hold rows and the snapshot still failed.
+   *
+   * Distinct from `snapshotPath === undefined`, which also covers the two harmless cases:
+   * `rowsAtRepair === 0` (nothing to preserve) and `rowsAtRepair === -1` (unreadable, so
+   * there is nothing a copy could have rescued either). This flag is only ever set when
+   * `countUserRows` returned a positive count — the file was readable, the rows were real,
+   * and the copy failed for some other reason. `VACUUM INTO` writes a full second copy, so
+   * insufficient free space is the realistic one.
+   *
+   * That combination is the only one where a destructive reset provably discards rows that
+   * could have been kept, which is why it is recorded rather than left to a `console.warn`.
+   */
+  preservationFailed?: boolean;
   writtenAtMs: number;
   /** Persisted so retry backoff survives quit/relaunch (in-memory cooldowns do not). */
   attempts: number;
@@ -77,9 +91,7 @@ export function listUserTables(db: Database.Database): string[] {
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
     )
     .all() as Array<{ name: string }>;
-  return rows
-    .map((r) => r.name)
-    .filter((name) => isReplicaUserDataTable(name));
+  return rows.map((r) => r.name).filter((name) => isReplicaUserDataTable(name));
 }
 
 export function isReplicaUserDataTable(tableName: string): boolean {
@@ -101,12 +113,17 @@ export function countUserRows(dbPath: string): number {
   }
   let db: Database.Database | null = null;
   try {
-    db = openDiagnosticDatabase(Database, "services/tursoReplica/tursoReplicaBootstrapMarker", dbPath, { readonly: true });
+    db = openDiagnosticDatabase(
+      Database,
+      "services/tursoReplica/tursoReplicaBootstrapMarker",
+      dbPath,
+      { readonly: true },
+    );
     let total = 0;
     for (const table of listUserTables(db)) {
-      const row = db
-        .prepare(`SELECT COUNT(*) AS n FROM "${table}"`)
-        .get() as { n?: number } | undefined;
+      const row = db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).get() as
+        | { n?: number }
+        | undefined;
       total += typeof row?.n === "number" ? row.n : 0;
     }
     return total;
@@ -125,15 +142,24 @@ export function countUserRows(dbPath: string): number {
  * Copy the current replica contents aside before a destructive reset.
  *
  * `VACUUM INTO` is a single atomic statement against a read snapshot, so it does not need
- * the sync engine to be closed and cannot half-write. Returns null when the copy failed —
- * repair still proceeds, but the marker records that nothing was preserved.
+ * the sync engine to be closed and cannot half-write. Returns null when the copy failed.
+ *
+ * A failure here is only advisory when there was nothing to preserve. When the file was
+ * readable and held rows, the caller declines the destructive reset outright — see
+ * `preservationFailed`. It writes a full second copy of the database, so a disk with less
+ * free space than the replica's size is the realistic way this fails on a healthy file.
  */
 function snapshotLocalRows(dbPath: string): string | null {
   const target = bootstrapSnapshotPath(dbPath);
   let db: Database.Database | null = null;
   try {
     fs.rmSync(target, { force: true });
-    db = openDiagnosticDatabase(Database, "services/tursoReplica/tursoReplicaBootstrapMarker", dbPath, { readonly: true });
+    db = openDiagnosticDatabase(
+      Database,
+      "services/tursoReplica/tursoReplicaBootstrapMarker",
+      dbPath,
+      { readonly: true },
+    );
     db.prepare("VACUUM INTO ?").run(target);
     return fs.existsSync(target) ? target : null;
   } catch (error) {
@@ -162,16 +188,40 @@ export function writeBootstrapPendingMarker(
 ): BootstrapPendingMarker {
   const rows = countUserRows(dbPath);
   // -1 (unreadable) is treated as "might hold data" — snapshot attempt is cheap, data loss is not.
-  const snapshotPath = rows !== 0 ? (snapshotLocalRows(dbPath) ?? undefined) : undefined;
+  const snapshotPath =
+    rows !== 0 ? (snapshotLocalRows(dbPath) ?? undefined) : undefined;
+  // Readable, populated, and the copy still failed — see `preservationFailed`. A -1 here is
+  // deliberately not flagged: every caller closes the worker first, so -1 means the file
+  // genuinely cannot be read, and a copy would not have rescued those rows either.
+  const preservationFailed = rows > 0 && !snapshotPath;
+  if (preservationFailed) {
+    console.error(
+      `[TursoReplicaBootstrap] Could not preserve ${rows} rows before a destructive reset ` +
+        `of ${dbPath} — refusing to proceed. Free disk space and retry.`,
+    );
+  }
   const marker: BootstrapPendingMarker = {
     reason,
     rowsAtRepair: rows,
     snapshotPath,
+    preservationFailed: preservationFailed || undefined,
     writtenAtMs: Date.now(),
     attempts: 0,
   };
+  if (preservationFailed) {
+    // Deliberately no marker on disk. The marker's whole effect is to force `bootstrapIfEmpty`
+    // on the next open, so writing one here would schedule the very reseed we are refusing —
+    // the caller skipping its sidecar delete would only postpone the loss, not prevent it.
+    // Leaving no state at all keeps the replica exactly as it is: readable, populated, and
+    // still holding the rows.
+    return marker;
+  }
   try {
-    fs.writeFileSync(bootstrapMarkerPath(dbPath), JSON.stringify(marker), "utf8");
+    fs.writeFileSync(
+      bootstrapMarkerPath(dbPath),
+      JSON.stringify(marker),
+      "utf8",
+    );
   } catch (error) {
     console.warn(
       `[TursoReplicaBootstrap] Could not write marker for ${dbPath}: ${(error as Error).message}`,
@@ -180,7 +230,9 @@ export function writeBootstrapPendingMarker(
   return marker;
 }
 
-export function readBootstrapPendingMarker(dbPath: string): BootstrapPendingMarker | null {
+export function readBootstrapPendingMarker(
+  dbPath: string,
+): BootstrapPendingMarker | null {
   try {
     const raw = fs.readFileSync(bootstrapMarkerPath(dbPath), "utf8");
     return JSON.parse(raw) as BootstrapPendingMarker;
@@ -195,7 +247,10 @@ export function hasBootstrapPendingMarker(dbPath: string): boolean {
 }
 
 /** Record a failed bootstrap attempt so backoff survives relaunch. */
-export function noteBootstrapAttemptFailed(dbPath: string, error: string): void {
+export function noteBootstrapAttemptFailed(
+  dbPath: string,
+  error: string,
+): void {
   const marker = readBootstrapPendingMarker(dbPath);
   if (!marker) {
     return;
@@ -214,11 +269,16 @@ export function noteBootstrapAttemptFailed(dbPath: string, error: string): void 
 }
 
 /** Exponential backoff capped at 15min, derived from persisted attempts. */
-export function bootstrapRetryReadyAtMs(marker: BootstrapPendingMarker): number {
+export function bootstrapRetryReadyAtMs(
+  marker: BootstrapPendingMarker,
+): number {
   if (!marker.lastAttemptMs) {
     return 0;
   }
-  const delay = Math.min(15 * 60_000, 5_000 * 2 ** Math.min(marker.attempts, 8));
+  const delay = Math.min(
+    15 * 60_000,
+    5_000 * 2 ** Math.min(marker.attempts, 8),
+  );
   return marker.lastAttemptMs + delay;
 }
 

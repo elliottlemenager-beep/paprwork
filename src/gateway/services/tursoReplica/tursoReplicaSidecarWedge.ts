@@ -183,7 +183,18 @@ export function repairReplicaSidecarWedge(dbPath: string): boolean {
   }
   // Marker first, delete second: a crash between the two costs one redundant pull, whereas
   // the reverse order is exactly the silent-empty-replica bug this guards against.
-  writeBootstrapPendingMarker(dbPath, "sidecar_wedge_repair");
+  const marker = writeBootstrapPendingMarker(dbPath, "sidecar_wedge_repair");
+  if (marker.preservationFailed) {
+    // A wedge is sidecar drift — it says nothing about `data.db`, which we have just read
+    // `rowsAtRepair` rows out of. Deleting the sidecars now would reseed over rows we know
+    // are there and could not copy, so the repair is declined and the wedge is left for the
+    // next attempt. Serving a wedged replica is recoverable; discarding its only copy is not.
+    console.error(
+      `[TursoReplicaSidecarWedge] Declining wedge repair on ${dbPath}: ` +
+        `${marker.rowsAtRepair} rows present and no snapshot could be taken.`,
+    );
+    return false;
+  }
   removeTursoReplicaSidecarsOnly(dbPath);
   return true;
 }
@@ -215,7 +226,17 @@ function resetSidecarsPreservingPopulatedReplica(
 ): void {
   const rows = countUserRows(dbPath);
   if (rows <= 0) {
-    writeBootstrapPendingMarker(dbPath, reason);
+    const marker = writeBootstrapPendingMarker(dbPath, reason);
+    if (marker.preservationFailed) {
+      // Only reachable on a race: the count above said <= 0, the count inside the marker
+      // said > 0, and the copy failed. The file holds rows either way, so the delete is
+      // declined for the same reason as the wedge path.
+      console.error(
+        `[TursoReplicaSidecarWedge] Declining ${reason} on ${dbPath}: ` +
+          `${marker.rowsAtRepair} rows present and no snapshot could be taken.`,
+      );
+      return;
+    }
   }
   removeTursoReplicaSidecarsOnly(dbPath);
 }
@@ -238,7 +259,22 @@ export function resetReplicaSidecars(
   if (condition === "engine_panic") {
     // The engine aborted, so `data.db` is not above suspicion and the marker stays
     // unconditional — a redundant re-bootstrap is cheaper than serving a damaged file.
-    writeBootstrapPendingMarker(dbPath, "engine_panic_sidecar_reset");
+    const marker = writeBootstrapPendingMarker(
+      dbPath,
+      "engine_panic_sidecar_reset",
+    );
+    if (marker.preservationFailed) {
+      // "Cheaper than serving a damaged file" assumes the re-bootstrap can restore what it
+      // replaces. It cannot here: the rows are readable, the copy failed, and there is no
+      // marker on disk. Deleting now would leave sidecar-less-and-unmarked — the exact state
+      // that is never seeded again — so the reset is declined and the panic path falls back
+      // to whatever the caller does with an unrepaired file.
+      console.error(
+        `[TursoReplicaSidecarWedge] Declining engine-panic reset on ${dbPath}: ` +
+          `${marker.rowsAtRepair} rows present and no snapshot could be taken.`,
+      );
+      return;
+    }
     removeTursoReplicaSidecarsOnly(dbPath);
     return;
   }
@@ -273,7 +309,9 @@ export function resetReplicaSidecars(
  * Both callers close the worker handle before calling, so a -1 here means the file genuinely
  * cannot be read rather than that the engine is holding it.
  */
-export function repairReplicaSidecarsOnCheckpointError(dbPath: string): boolean {
+export function repairReplicaSidecarsOnCheckpointError(
+  dbPath: string,
+): boolean {
   if (!fs.existsSync(dbPath)) {
     return false;
   }

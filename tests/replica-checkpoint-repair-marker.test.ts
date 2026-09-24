@@ -15,8 +15,17 @@ import * as path from "path";
 const calls: string[] = [];
 
 const countUserRows = vi.fn<(p: string) => number>(() => 0);
-const writeBootstrapPendingMarker = vi.fn((_p: string, _r: string) => {
+// Returns a marker because callers now branch on `preservationFailed` before deleting
+// sidecars. These cases all model a successful snapshot, so the flag stays unset and the
+// delete proceeds — the refusal path is covered in replica-bootstrap-preservation.test.ts.
+const writeBootstrapPendingMarker = vi.fn((_p: string, reason: string) => {
   calls.push("marker");
+  return {
+    reason,
+    rowsAtRepair: countUserRows(_p),
+    writtenAtMs: Date.now(),
+    attempts: 0,
+  };
 });
 const removeTursoReplicaSidecarsOnly = vi.fn((_p: string) => {
   calls.push("delete");
@@ -33,14 +42,15 @@ vi.mock(
   }),
 );
 
-vi.mock("../src/gateway/services/tursoReplica/tursoReplicaFileGuard.js", () => ({
-  removeTursoReplicaSidecarsOnly,
-}));
+vi.mock(
+  "../src/gateway/services/tursoReplica/tursoReplicaFileGuard.js",
+  () => ({
+    removeTursoReplicaSidecarsOnly,
+  }),
+);
 
 const { repairReplicaSidecarsOnCheckpointError, resetReplicaSidecars } =
-  await import(
-    "../src/gateway/services/tursoReplica/tursoReplicaSidecarWedge.js"
-  );
+  await import("../src/gateway/services/tursoReplica/tursoReplicaSidecarWedge.js");
 
 let dir: string;
 let dbPath: string;

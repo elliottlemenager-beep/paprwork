@@ -26,7 +26,7 @@ from .registry import FIELDS  # noqa: F401
 
 log = logging.getLogger("commons")
 app = FastAPI(title="Scout Commons API", version="0.2.0-dev")
-OPEN = {"/healthz", "/v1/commons/fields", "/docs", "/openapi.json"}
+OPEN = {"/health", "/v1/commons/fields", "/docs", "/openapi.json"}
 
 
 def ok(data, request: Request, code=200, warnings=None, notices=None, search_id=None):
@@ -77,7 +77,7 @@ async def _timeout(request: Request, e):
     return err(request, 503, "service_unavailable", "Query took too long; narrow the filters.")
 
 
-@app.get("/healthz")
+@app.get("/health")
 def healthz():
     return {"ok": True, "release": store.active_release()["release_id"]}
 

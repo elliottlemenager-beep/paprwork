@@ -128,7 +128,8 @@ def register(app: FastAPI):
             rec = shape(d, fields)
             if want_ll:
                 rec["lookalikes"] = [{"entity_id": x["entity_id"], "domain": x["domain"],
-                                      "score": round(squash(x["score"]), 4), "via": "web_graph"}
+                                      "score": round(squash(x["score"]), 4), "via": "web_graph",
+                                      "shared_sites": x.get("shared_sites")}
                                      for x in lls.get(d["_id"], [])]
             results.append(rec)
         # Live fallback isn't built yet: misses come back as not_found, never silently dropped.

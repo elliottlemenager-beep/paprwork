@@ -51,7 +51,7 @@ def lookalikes(seed_ids: list[str], release_id: str, k: int = 100) -> dict[str, 
     if not seed_ids:
         return {}
     table = f"`{BQ_PROJECT}.{BQ_DATASET}.release_{release_id.replace('-', '_')}_lookalikes_serving`"
-    sql = (f"SELECT seed_entity_id, ARRAY(SELECT AS STRUCT entity_id, domain, score, confidence, rank "
+    sql = (f"SELECT seed_entity_id, ARRAY(SELECT AS STRUCT entity_id, domain, score, shared_sites, confidence, rank "
            f"FROM UNNEST(lookalikes) ORDER BY rank LIMIT @k) l FROM {table} "
            f"WHERE seed_entity_id IN UNNEST(@ids)")
     cfg = bigquery.QueryJobConfig(query_parameters=[

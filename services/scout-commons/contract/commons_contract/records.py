@@ -38,6 +38,7 @@ class Lookalike(BaseModel):
     domain: str
     score: float = Field(ge=0, le=1)
     via: Literal["web_graph", "embedding", "blend"]
+    shared_sites: int | None = Field(None, description="Sites linking to both seed and this company (web_graph only).")
 
 
 class Company(Freshness):

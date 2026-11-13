@@ -26,6 +26,11 @@ NOT_IN_PRIVATE = {"code": "IGNORED_FIELD", "path": "/exclude/in_private_layer",
                   "message": "in_private_layer isn't wired to Papr memory yet; it has no effect."}
 
 
+def squash(raw: float) -> float:
+    """Raw web-graph scores are unbounded (median ~0.07, max ~2.5). Map to 0-1 without ties at the top."""
+    return raw / (raw + 0.25) if raw > 0 else 0.0
+
+
 def _resolve(col, ids: list[str], proj) -> tuple[dict[str, dict], list[str]]:
     """ids or domains → {requested: doc}, not_found."""
     eids = [i for i in ids if i.startswith("c_")]
@@ -123,7 +128,7 @@ def register(app: FastAPI):
             rec = shape(d, fields)
             if want_ll:
                 rec["lookalikes"] = [{"entity_id": x["entity_id"], "domain": x["domain"],
-                                      "score": round(min(1.0, x["score"]), 4), "via": "web_graph"}
+                                      "score": round(squash(x["score"]), 4), "via": "web_graph"}
                                      for x in lls.get(d["_id"], [])]
             results.append(rec)
         # Live fallback isn't built yet: misses come back as not_found, never silently dropped.
@@ -160,7 +165,7 @@ def register(app: FastAPI):
         for s in seed_ids:
             for x in lls.get(s, []):
                 a = agg.setdefault(x["entity_id"], {"sum": 0.0, "hits": 0})
-                a["sum"] += min(1.0, x["score"]); a["hits"] += 1
+                a["sum"] += squash(x["score"]); a["hits"] += 1
         for s in seed_ids:
             agg.pop(s, None)
         scored = sorted(((e, a["sum"] / max(1, len(seed_ids)), a["hits"]) for e, a in agg.items()),
@@ -181,7 +186,7 @@ def register(app: FastAPI):
         if seed_ids and not any(lls.get(s) for s in seed_ids):
             notices.append({"code": "NO_LOOKALIKES", "path": "/seeds",
                             "message": "These seeds have too few links for web-graph lookalikes; embedding lookalikes aren't live yet."})
-        return ok({"results": results, "total_considered": len(scored), "routed": "precomputed+qdrant",
+        return ok({"results": results, "total_considered": len(scored), "routed": "precomputed",
                    "pending_seeds": [], "task_id": None}, request,
                   warnings=warns + ([NOT_IN_PRIVATE] if warn else []), notices=notices,
                   search_id="q_" + uuid.uuid4().hex[:16])

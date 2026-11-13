@@ -80,3 +80,15 @@ def test_search_query_not_yet():
 
 def test_search_needs_query_or_seeds():
     assert post("/v1/commons/search", {}).status_code == 400
+
+
+def test_search_scores_ranked_not_tied():
+    r = post("/v1/commons/search", {"seeds": ["gong.io"]}).json()["data"]["results"]
+    s = [x["score"] for x in r]
+    assert s == sorted(s, reverse=True) and len(set(s)) > 1 and all(0 < v < 1 for v in s)
+
+
+def test_search_unknown_seed_warns():
+    r = post("/v1/commons/search", {"seeds": ["not-a-real-domain-xyz.com"]})
+    assert r.status_code == 200
+    assert [w["code"] for w in r.json()["warnings"]] == ["SEED_NOT_FOUND"]

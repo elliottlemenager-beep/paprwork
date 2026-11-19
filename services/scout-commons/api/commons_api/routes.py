@@ -14,6 +14,7 @@ from commons_contract.filter import FilterRequest
 from commons_contract.search import SearchRequest
 
 from . import store
+from .clean import clean
 from .query import ApiError, exclude_to_mongo, merge, normalize_domain, to_mongo
 from .records import projection, shape
 from .registry import DEFAULT_SORT, FIELDS, SORT_ALIASES
@@ -24,11 +25,6 @@ COUNT_BUDGET_MS = 1500
 FACET_BUDGET_MS = 2500
 NOT_IN_PRIVATE = {"code": "IGNORED_FIELD", "path": "/exclude/in_private_layer",
                   "message": "in_private_layer isn't wired to Papr memory yet; it has no effect."}
-
-
-def squash(raw: float) -> float:
-    """Raw web-graph scores are unbounded (median ~0.07, max ~2.5). Map to 0-1 without ties at the top."""
-    return raw / (raw + 0.25) if raw > 0 else 0.0
 
 
 def _resolve(col, ids: list[str], proj) -> tuple[dict[str, dict], list[str]]:
@@ -46,6 +42,15 @@ def _resolve(col, ids: list[str], proj) -> tuple[dict[str, dict], list[str]]:
             if d in by:
                 found[raw] = by[d]
     return found, [i for i in ids if i not in found]
+
+
+def _cleaned(col, seeds: dict[str, dict], lls: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    """Hub filter + own-domain collapse + per-seed rescale (clean.py). seeds: entity_id -> {domain, inbound_sites}."""
+    ids = list({x["entity_id"] for v in lls.values() for x in v})
+    inbound = {d["domain"]: d.get("inbound_sites") or 0
+               for d in col.find({"_id": {"$in": ids}}, {"domain": 1, "inbound_sites": 1}, max_time_ms=5000)} if ids else {}
+    return {sid: clean(seeds[sid]["domain"], seeds[sid].get("inbound_sites"), v, inbound)
+            for sid, v in lls.items() if sid in seeds}
 
 
 def register(app: FastAPI):
@@ -118,7 +123,11 @@ def register(app: FastAPI):
         want_ll = "lookalikes" in fields or "*" in fields
         found, missing = _resolve(col, ids, projection(fields))
         results = []
-        lls = store.lookalikes(list({d["_id"] for d in found.values()}), rid) if want_ll else {}
+        lls = {}
+        if want_ll:
+            sd = {d["_id"]: d for d in col.find({"_id": {"$in": list({d["_id"] for d in found.values()})}},
+                                                 {"domain": 1, "inbound_sites": 1}, max_time_ms=3000)}
+            lls = _cleaned(col, sd, store.lookalikes(list(sd), rid))
         seen = set()
         for i in ids:
             d = found.get(i)
@@ -128,7 +137,7 @@ def register(app: FastAPI):
             rec = shape(d, fields)
             if want_ll:
                 rec["lookalikes"] = [{"entity_id": x["entity_id"], "domain": x["domain"],
-                                      "score": round(squash(x["score"]), 4), "via": "web_graph",
+                                      "score": round(x["score"], 4), "via": "web_graph",
                                       "shared_sites": x.get("shared_sites")}
                                      for x in lls.get(d["_id"], [])]
             results.append(rec)
@@ -156,17 +165,17 @@ def register(app: FastAPI):
             raise ApiError(501, "not_implemented",
                            "Free-text search needs the embedding run (pending). Use seeds for lookalikes or /filter.", "/query")
         col, rid = store.companies()
-        seeds, missing = _resolve(col, body.seeds, {"_id": 1, "domain": 1})
+        seeds, missing = _resolve(col, body.seeds, {"_id": 1, "domain": 1, "inbound_sites": 1})
         seed_ids = list({d["_id"] for d in seeds.values()})
         warns = [{"code": "SEED_NOT_FOUND", "path": f"/seeds/{body.seeds.index(m)}",
                   "message": f"'{m}' isn't in the release; skipped."} for m in missing]
-        lls = store.lookalikes(seed_ids, rid, k=200)
+        lls = _cleaned(col, {d["_id"]: d for d in seeds.values()}, store.lookalikes(seed_ids, rid, k=200))
         # Multi-seed: average score across seeds (missing = 0), bonus for appearing under several seeds.
         agg: dict[str, dict] = {}
         for s in seed_ids:
             for x in lls.get(s, []):
                 a = agg.setdefault(x["entity_id"], {"sum": 0.0, "hits": 0})
-                a["sum"] += squash(x["score"]); a["hits"] += 1
+                a["sum"] += x["score"]; a["hits"] += 1
         for s in seed_ids:
             agg.pop(s, None)
         scored = sorted(((e, a["sum"] / max(1, len(seed_ids)), a["hits"]) for e, a in agg.items()),

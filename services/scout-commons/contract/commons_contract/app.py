@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from .entities import EntitiesData, EntitiesRequest
 from .events import EventsData, EventType, Webhook, WebhookCreate
 from .envelope import Envelope
+from .feedback import FeedbackData, FeedbackRequest
 from .fields import FieldsData
 from .filter import FilterData, FilterRequest
 from .search import SearchData, SearchRequest
@@ -80,4 +81,9 @@ def delete_webhook(webhook_id: str):
 
 @app.get("/v1/commons/events", response_model=Envelope[EventsData], tags=["events"])
 def list_events(type: EventType | None = None, since: str | None = None, cursor: str | None = None):
+    return _stub()
+
+
+@app.post("/v1/feedback", response_model=Envelope[FeedbackData], responses=ERRORS, tags=["commons"])
+def feedback(body: FeedbackRequest):
     return _stub()

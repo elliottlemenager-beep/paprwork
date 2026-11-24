@@ -56,3 +56,20 @@ def record(*, search_id: str, request_id: str, use_case: str, endpoint: str, par
                 "candidates": [{"entity_id": c.get("entity_id"), "rank": i + 1, "score": c.get("score")}
                                for i, c in enumerate(candidates)]}
     _pool.submit(_write, query_row, cand_row)
+
+
+def record_outcome(*, search_id: str, outcome: str, entity_id: str | None, request_id: str) -> dict | None:
+    """Insert one outcome row. Returns {'rank': int|None}, or None if search_id is unknown."""
+    db = store.mongo()[store.DB]
+    q = db["query_log"].find_one({"search_id": search_id}, {"use_case": 1})
+    if not q:
+        return None
+    rank = None
+    if entity_id:
+        r = db["retrieval_log"].find_one({"search_id": search_id}, {"candidates": 1}) or {}
+        rank = next((c["rank"] for c in r.get("candidates", []) if c["entity_id"] == entity_id), None)
+    db["outcome_log"].create_index([("search_id", 1), ("created_at", 1)])
+    db["outcome_log"].insert_one({"search_id": search_id, "outcome": outcome, "entity_id": entity_id, "rank": rank,
+                                  "use_case": q.get("use_case"), "request_id": request_id,
+                                  "created_at": datetime.now(timezone.utc)})
+    return {"rank": rank}

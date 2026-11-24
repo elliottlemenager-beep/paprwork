@@ -379,6 +379,98 @@
         "title": "Envelope[EventsData]",
         "type": "object"
       },
+      "Envelope_FeedbackData_": {
+        "properties": {
+          "code": {
+            "default": 200,
+            "title": "Code",
+            "type": "integer"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On errors: { message, path? }.",
+            "title": "Details"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Machine-readable code; open set, known values in ErrorCode.",
+            "title": "Error"
+          },
+          "notices": {
+            "description": "How results were produced. Pass them to the model or user with the results.",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Notices",
+            "type": "array"
+          },
+          "request_id": {
+            "description": "Unique per request. Include it when reporting a problem.",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "search_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
+            "title": "Search Id"
+          },
+          "status": {
+            "default": "success",
+            "enum": [
+              "success",
+              "accepted",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "About the request. Log them; don't show them to a model.",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "title": "Envelope[FeedbackData]",
+        "type": "object"
+      },
       "Envelope_FieldsData_": {
         "properties": {
           "code": {
@@ -1121,6 +1213,73 @@
           }
         },
         "title": "Exclude",
+        "type": "object"
+      },
+      "FeedbackData": {
+        "properties": {
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank of entity_id in the original result set, if it was there.",
+            "title": "Rank"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "title": "FeedbackData",
+        "type": "object"
+      },
+      "FeedbackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The result acted on. Omit for search-level outcomes.",
+            "title": "Entity Id"
+          },
+          "outcome": {
+            "enum": [
+              "opened",
+              "saved",
+              "exported",
+              "enriched",
+              "contacted",
+              "replied",
+              "meeting_booked",
+              "dismissed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "search_id": {
+            "description": "From the search_id on a /search or /filter response.",
+            "title": "Search Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "search_id",
+          "outcome"
+        ],
+        "title": "FeedbackRequest",
         "type": "object"
       },
       "FieldInfo": {
@@ -2619,6 +2778,62 @@
         "summary": "Delete Webhook",
         "tags": [
           "events"
+        ]
+      }
+    },
+    "/v1/feedback": {
+      "post": {
+        "operationId": "feedback_v1_feedback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_FeedbackData_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid request (error: invalid_request | unknown_field)."
+          },
+          "401": {
+            "description": "Missing or invalid credentials."
+          },
+          "402": {
+            "description": "Live-compute budget exceeded (live_budget_exceeded). Retry-After header set."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Rate limited. Retry-After header set."
+          },
+          "503": {
+            "description": "Temporarily unavailable. Not processed and not counted against quotas."
+          }
+        },
+        "summary": "Feedback",
+        "tags": [
+          "commons"
         ]
       }
     }

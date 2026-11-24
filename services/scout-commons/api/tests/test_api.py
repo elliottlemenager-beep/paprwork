@@ -117,3 +117,38 @@ def test_log_failure_never_breaks_response(monkeypatch):
     from commons_api import querylog
     monkeypatch.setattr(querylog.store, "mongo", lambda: (_ for _ in ()).throw(RuntimeError("down")))
     querylog._write({"search_id": "x"}, {"search_id": "x"})  # swallowed, logged
+
+
+class _Col(list):
+    def find_one(self, q, proj=None):
+        return next((d for d in self if all(d.get(k) == v for k, v in q.items())), None)
+    def insert_one(self, d): self.append(d)
+    def create_index(self, *a, **k): pass
+
+
+def _fake_db(monkeypatch):
+    from commons_api import querylog
+    db = {"query_log": _Col([{"search_id": "q_1", "use_case": "commons_lookalike"}]),
+          "retrieval_log": _Col([{"search_id": "q_1", "candidates": [{"entity_id": "c_a", "rank": 1}, {"entity_id": "c_b", "rank": 2}]}]),
+          "outcome_log": _Col()}
+    monkeypatch.setattr(querylog.store, "mongo", lambda: {querylog.store.DB: db})
+    return db
+
+
+def test_feedback_records_outcome_with_rank(monkeypatch):
+    db = _fake_db(monkeypatch)
+    r = post("/v1/feedback", {"search_id": "q_1", "outcome": "contacted", "entity_id": "c_b"}).json()
+    assert r["data"] == {"recorded": True, "rank": 2}
+    row, = db["outcome_log"]
+    assert row["outcome"] == "contacted" and row["use_case"] == "commons_lookalike" and "user" not in str(row).lower()
+
+
+def test_feedback_unknown_search_id_404(monkeypatch):
+    _fake_db(monkeypatch)
+    r = post("/v1/feedback", {"search_id": "q_nope", "outcome": "opened"})
+    assert r.status_code == 404 and r.json()["error"] == "not_found"
+
+
+def test_feedback_rejects_bad_outcome():
+    r = post("/v1/feedback", {"search_id": "q_1", "outcome": "liked"})
+    assert r.status_code == 400

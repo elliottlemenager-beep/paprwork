@@ -10,6 +10,7 @@ from fastapi import FastAPI, Query, Request
 from pymongo.errors import ExecutionTimeout
 
 from commons_contract.entities import EntitiesRequest
+from commons_contract.feedback import FeedbackRequest
 from commons_contract.filter import FilterRequest
 from commons_contract.search import SearchRequest
 
@@ -209,6 +210,14 @@ def register(app: FastAPI):
         return ok({"results": results, "total_considered": len(scored), "routed": "precomputed",
                    "pending_seeds": [], "task_id": None}, request,
                   warnings=warns + ([NOT_IN_PRIVATE] if warn else []), notices=notices, search_id=sid)
+
+    @app.post("/v1/feedback")
+    def feedback(body: FeedbackRequest, request: Request):
+        out = querylog.record_outcome(search_id=body.search_id, outcome=body.outcome,
+                                      entity_id=body.entity_id, request_id=request.state.rid)
+        if out is None:
+            raise ApiError(404, "not_found", f"Unknown search_id '{body.search_id}'.", "/search_id")
+        return ok({"recorded": True, "rank": out["rank"]}, request)
 
     @app.get("/v1/commons/tasks/{task_id}")
     def task(task_id: str, request: Request):

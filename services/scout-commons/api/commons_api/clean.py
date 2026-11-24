@@ -29,10 +29,11 @@ amazonaws.com cloudfront.net cloudflare.com cloudflareinsights.com akamaihd.net 
 unpkg.com cdnjs.com jquery.com bootstrapcdn.com fontawesome.com typekit.net fonts.com gravatar.com wp.com
 wordpress.org wordpress.com w.org gmpg.org schema.org w3.org bit.ly tinyurl.com wikipedia.org wikimedia.org
 github.com medium.com cookiebot.com complianz.io onetrust.com cookielaw.org hotjar.com
+recaptcha.net hcaptcha.com imgix.net paypalobjects.com
 """.split())
 _BAD_TLD = re.compile(r"\.(gov|edu|mil|int)(\.[a-z]{2})?$")
 # Infrastructure, not companies: kajabi-cdn.com, portfolioboxdns.com, hsappstatic.net, cookiedatabase.org.
-_INFRA = re.compile(r"(cdn|dns|static|assets|cookie|usercontent|analytics|pixel)|^[a-z0-9-]*(api|js)\.[a-z.]+$")
+_INFRA = re.compile(r"(cdn|dns|static|assets|cookie|usercontent|analytics|pixel|captcha|objects|cloudflare)|^[a-z0-9-]*(api|js)\.[a-z.]+$")
 
 
 def brand(domain: str) -> str:

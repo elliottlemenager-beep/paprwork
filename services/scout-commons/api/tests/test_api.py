@@ -152,3 +152,20 @@ def test_feedback_unknown_search_id_404(monkeypatch):
 def test_feedback_rejects_bad_outcome():
     r = post("/v1/feedback", {"search_id": "q_1", "outcome": "liked"})
     assert r.status_code == 400
+
+
+# Quality gate (Amir, #580 follow-up): big seeds must not be led by hubs/infra, and must surface real peers.
+_NOISE = {"facebook.com", "google.com", "googletagmanager.com", "gstatic.com", "instagram.com", "youtube.com",
+          "twitter.com", "linkedin.com", "pinterest.com", "apple.com", "cloudflare.com", "gravatar.com", "wp.com",
+          "gmpg.org", "recaptcha.net", "hcaptcha.com", "paypalobjects.com", "cloudflarestream.com", "imgix.net"}
+_PEERS = {"stripe.com": {"paypal.com", "adyen.com", "checkout.com", "square.com", "braintreepayments.com", "klarna.com"},
+          "notion.so": {"trello.com", "asana.com", "clickup.com", "slack.com", "airtable.com", "miro.com"},
+          "shopify.com": {"bigcommerce.com", "wix.com", "squarespace.com", "klaviyo.com", "woocommerce.com"}}
+
+
+@pytest.mark.parametrize("seed", list(_PEERS))
+def test_lookalike_quality_no_hubs_and_known_peers(seed):
+    top = [x["record"]["domain"] for x in post("/v1/commons/search", {"seeds": [seed]}, max_results=20).json()["data"]["results"]]
+    assert not _NOISE & set(top), f"hub/infra in top 20 for {seed}: {_NOISE & set(top)}"
+    assert not [d for d in top if d.endswith((".gov", ".edu", ".mil"))]
+    assert len(_PEERS[seed] & set(top)) >= 1, f"no known peer in top 20 for {seed}: {top}"

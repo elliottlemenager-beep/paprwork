@@ -31,3 +31,10 @@ def test_keeps_real_competitor_with_high_overlap_but_larger_than_seed():
 
 def test_empty():
     assert clean("stripe.com", 1, [], {}) == []
+
+
+def test_blocks_captcha_and_image_infra_but_keeps_peers():
+    out = clean("stripe.com", 734475, ll(("recaptcha.net", 9, 100), ("hcaptcha.com", 8, 100), ("imgix.net", 7, 100),
+                                          ("paypalobjects.com", 6, 100), ("cloudflarestream.com", 5, 100),
+                                          ("paypal.com", 4, 100), ("klaviyo.com", 3, 100)), {})
+    assert [x["domain"] for x in out] == ["paypal.com", "klaviyo.com"]

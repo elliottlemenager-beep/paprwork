@@ -163,9 +163,12 @@ _PEERS = {"stripe.com": {"paypal.com", "adyen.com", "checkout.com", "square.com"
           "shopify.com": {"bigcommerce.com", "wix.com", "squarespace.com", "klaviyo.com", "woocommerce.com"}}
 
 
+_MIN_PEERS = {"stripe.com": 2, "notion.so": 4, "shopify.com": 1}  # shopify: raise once recall improves (bigcommerce/wix/squarespace absent)
+
+
 @pytest.mark.parametrize("seed", list(_PEERS))
 def test_lookalike_quality_no_hubs_and_known_peers(seed):
     top = [x["record"]["domain"] for x in post("/v1/commons/search", {"seeds": [seed]}, max_results=20).json()["data"]["results"]]
     assert not _NOISE & set(top), f"hub/infra in top 20 for {seed}: {_NOISE & set(top)}"
     assert not [d for d in top if d.endswith((".gov", ".edu", ".mil"))]
-    assert len(_PEERS[seed] & set(top)) >= 1, f"no known peer in top 20 for {seed}: {top}"
+    assert len(_PEERS[seed] & set(top)) >= _MIN_PEERS[seed], f"<{_MIN_PEERS[seed]} known peers in top 20 for {seed}: {top}"

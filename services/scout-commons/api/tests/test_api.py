@@ -92,3 +92,28 @@ def test_search_unknown_seed_warns():
     r = post("/v1/commons/search", {"seeds": ["not-a-real-domain-xyz.com"]})
     assert r.status_code == 200
     assert [w["code"] for w in r.json()["warnings"]] == ["SEED_NOT_FOUND"]
+
+
+def test_filter_returns_search_id():
+    r = post("/v1/commons/filter", {"fields": ["name"]}, max_results=3).json()
+    assert r["search_id"].startswith("q_")
+
+
+def test_search_and_filter_log_query_and_candidates(monkeypatch):
+    from commons_api import querylog
+    rows = []
+    monkeypatch.setattr(querylog._pool, "submit", lambda fn, q, c: rows.append((q, c)))
+    r = post("/v1/commons/search", {"seeds": ["gong.io"]}, max_results=10).json()
+    (q, cand), = rows
+    assert q["search_id"] == cand["search_id"] == r["search_id"] and q["use_case"] == "commons_lookalike"
+    assert [c["rank"] for c in cand["candidates"]] == list(range(1, len(r["data"]["results"]) + 1))
+    assert cand["candidates"][0]["score"] == r["data"]["results"][0]["score"]
+    rows.clear()
+    f = post("/v1/commons/filter", {"fields": ["name"]}, max_results=3).json()
+    assert rows[0][0]["use_case"] == "commons_filter" and rows[0][0]["search_id"] == f["search_id"]
+
+
+def test_log_failure_never_breaks_response(monkeypatch):
+    from commons_api import querylog
+    monkeypatch.setattr(querylog.store, "mongo", lambda: (_ for _ in ()).throw(RuntimeError("down")))
+    querylog._write({"search_id": "x"}, {"search_id": "x"})  # swallowed, logged

@@ -259,7 +259,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -351,7 +351,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -443,7 +443,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -535,7 +535,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -627,7 +627,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -719,7 +719,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -811,7 +811,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -905,7 +905,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {
@@ -1001,7 +1001,7 @@
                 "type": "null"
               }
             ],
-            "description": "Only on /search; pass to POST /v1/feedback.",
+            "description": "On /search and /filter; pass back to POST /v1/feedback with the outcome.",
             "title": "Search Id"
           },
           "status": {

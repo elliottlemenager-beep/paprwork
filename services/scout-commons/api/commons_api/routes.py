@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-import uuid
+import time
 
 from fastapi import FastAPI, Query, Request
 from pymongo.errors import ExecutionTimeout
@@ -13,7 +13,7 @@ from commons_contract.entities import EntitiesRequest
 from commons_contract.filter import FilterRequest
 from commons_contract.search import SearchRequest
 
-from . import store
+from . import querylog, store
 from .clean import clean
 from .query import ApiError, exclude_to_mongo, merge, normalize_domain, to_mongo
 from .records import projection, shape
@@ -58,6 +58,7 @@ def register(app: FastAPI):
 
     @app.post("/v1/commons/filter")
     def filter_(body: FilterRequest, request: Request, max_results: int = Query(100, ge=0, le=1000)):
+        t0 = time.time()
         _check_fields(body.fields, "/fields")
         col, _ = store.companies()
         ex, warn = exclude_to_mongo(body.exclude)
@@ -113,9 +114,13 @@ def register(app: FastAPI):
         if facets and (n > FACET_CAP or not exact):
             notices.append({"code": "FACETS_SAMPLED", "path": "/facets",
                             "message": f"Facet counts cover the top {FACET_CAP:,} matches by authority."})
+        sid = querylog.new_search_id()
+        querylog.record(search_id=sid, request_id=request.state.rid, use_case="commons_filter", endpoint="/v1/commons/filter",
+                        params=body.model_dump(mode="json", exclude={"cursor"}) | {"offset": offset, "max_results": max_results},
+                        candidates=results, t0=t0, total=min(n, MAX_TOTAL))
         return ok({"results": results, "total": min(n, MAX_TOTAL), "total_is_estimate": n > MAX_TOTAL or not exact,
                    "facets": facets, "next_cursor": nxt}, request,
-                  warnings=[NOT_IN_PRIVATE] if warn else [], notices=notices)
+                  warnings=[NOT_IN_PRIVATE] if warn else [], notices=notices, search_id=sid)
 
     def _entities(ids: list[str], fields: list[str], request: Request):
         _check_fields(fields, "/fields")
@@ -161,6 +166,7 @@ def register(app: FastAPI):
 
     @app.post("/v1/commons/search")
     def search(body: SearchRequest, request: Request, max_results: int = Query(20, ge=10, le=200)):
+        t0 = time.time()
         if body.query:
             raise ApiError(501, "not_implemented",
                            "Free-text search needs the embedding run (pending). Use seeds for lookalikes or /filter.", "/query")
@@ -196,10 +202,13 @@ def register(app: FastAPI):
         if seed_ids and not any(lls.get(s) for s in seed_ids):
             notices.append({"code": "NO_LOOKALIKES", "path": "/seeds",
                             "message": "These seeds have too few links for web-graph lookalikes; embedding lookalikes aren't live yet."})
+        sid = querylog.new_search_id()
+        querylog.record(search_id=sid, request_id=request.state.rid, use_case="commons_lookalike", endpoint="/v1/commons/search",
+                        params=body.model_dump(mode="json") | {"max_results": max_results},
+                        candidates=results, t0=t0, total=len(scored))
         return ok({"results": results, "total_considered": len(scored), "routed": "precomputed",
                    "pending_seeds": [], "task_id": None}, request,
-                  warnings=warns + ([NOT_IN_PRIVATE] if warn else []), notices=notices,
-                  search_id="q_" + uuid.uuid4().hex[:16])
+                  warnings=warns + ([NOT_IN_PRIVATE] if warn else []), notices=notices, search_id=sid)
 
     @app.get("/v1/commons/tasks/{task_id}")
     def task(task_id: str, request: Request):

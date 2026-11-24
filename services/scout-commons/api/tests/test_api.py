@@ -85,7 +85,7 @@ def test_search_needs_query_or_seeds():
 def test_search_scores_ranked_not_tied():
     r = post("/v1/commons/search", {"seeds": ["gong.io"]}).json()["data"]["results"]
     s = [x["score"] for x in r]
-    assert s == sorted(s, reverse=True) and len(set(s)) > 1 and all(0 < v < 1 for v in s)
+    assert s == sorted(s, reverse=True) and len(set(s)) > 1 and all(0 < v <= 1 for v in s)  # per-seed rescale: top lookalike is exactly 1.0 (clean.py)
 
 
 def test_search_unknown_seed_warns():

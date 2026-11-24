@@ -1,0 +1,7 @@
+# gcloud builds submit services/scout-commons --config services/scout-commons/api/cloudbuild.yaml
+steps:
+- name: gcr.io/cloud-builders/docker
+  args: [build, -f, api/Dockerfile, -t, '${_IMAGE}', .]
+images: ['${_IMAGE}']
+substitutions:
+  _IMAGE: us-west1-docker.pkg.dev/papr-scout-commons/commons/scout-commons-api:latest

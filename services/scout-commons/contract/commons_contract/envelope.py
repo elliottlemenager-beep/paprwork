@@ -85,6 +85,6 @@ class Envelope(BaseModel, Generic[T]):
     data: T | None = None
     error: str | None = Field(None, description="Machine-readable code; open set, known values in ErrorCode.")
     details: dict[str, Any] | None = Field(None, description="On errors: { message, path? }.")
-    search_id: str | None = Field(None, description="Only on /search; pass to POST /v1/feedback.")
+    search_id: str | None = Field(None, description="On /search and /filter; pass back to POST /v1/feedback with the outcome.")
     warnings: list[Message] = Field(default_factory=list, description="About the request. Log them; don't show them to a model.")
     notices: list[Message] = Field(default_factory=list, description="How results were produced. Pass them to the model or user with the results.")
